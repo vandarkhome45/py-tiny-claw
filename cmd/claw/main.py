@@ -1,27 +1,65 @@
 # cmd/claw/main.py
 # 对应 Go 版: cmd/claw/main.go
-# 第 1 章：搭建项⽬⻣架。此时只有⼀个⼊⼝⽂件，各模块尚未实现。
+# 第 3 章：接入 DeepSeek Provider，并通过天气 Mock 工具验证 Agent 主循环。
 import logging
-# 配置 log，模拟 Go 标准库 log 的 "⽇期 时间 消息" 输出格式
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s",
-datefmt="%Y/%m/%d %H:%M:%S")
+import os
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from internal.engine.loop import AgentEngine
+from internal.provider.openai import new_deepseek_provider
+from internal.schema.message import ToolCall, ToolDefinition, ToolResult
+from internal.tools.registry import Registry
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(message)s",
+    datefmt="%Y/%m/%d %H:%M:%S",
+)
 log = logging.getLogger(__name__)
-def main():
- print("🚀 欢迎来到 py-tiny-claw 引擎启动序列")
- # TODO: 1. 初始化模型 Provider (⼤脑)
- # provider = ZhipuClaudeProvider(...)
- # TODO: 2. 初始化 Tool Registry (⼿脚)
- # registry = Registry()
- # registry.register(BashTool())
- # TODO: 3. 初始化上下⽂管理器 (内存管理器)
- # ctx_manager = context.Manager(...)
- # TODO: 4. 组装并启动核⼼ Engine (操作系统⼼脏)
- # engine = AgentEngine(provider, registry, ctx_manager)
- # print("开始执⾏任务...")
- # try:
- # engine.run("帮我检查⼀下当前⽬录下的⽂件并输出⼀个 README.md ⼤纲")
- # except Exception as e:
- # sys.exit(f"引擎运⾏崩溃: {e}")
- log.info("⻣架搭建完毕，等待各模块注⼊！")
+
+
+class MockRegistry(Registry):
+    """用于实验的天气工具注册中心。"""
+
+    def get_available_tools(self) -> list[ToolDefinition]:
+        return [
+            ToolDefinition(
+                name="get_weather",
+                description="获取指定城市的当前天气情况。",
+                input_schema={
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            )
+        ]
+
+    def execute(self, call: ToolCall) -> ToolResult:
+        log.info("-> [Mock 工具执行] 获取 %s 的天气中...", call.name)
+        return ToolResult(
+            tool_call_id=call.id,
+            output="API 返回：今天是晴天，气温 25 度。",
+            is_error=False,
+        )
+
+
+def main() -> None:
+    if not os.getenv("DEEPSEEK_API_KEY"):
+        sys.exit("请先配置 DEEPSEEK_API_KEY 环境变量")
+
+    llm_provider = new_deepseek_provider("deepseek-chat")
+    registry = MockRegistry()
+    work_dir = os.getcwd()
+    prompt = "我想去北京跑步，帮我查查天气适合吗？"
+
+    # 将最后一个参数改为 False，即可运行关闭慢思考的对照组。
+    eng = AgentEngine(llm_provider, registry, work_dir, True)
+    eng.run(prompt)
+
+
 if __name__ == "__main__":
- main()
+    main()
