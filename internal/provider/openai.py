@@ -1,6 +1,7 @@
 # internal/provider/openai.py
 # 对应 Go 版: internal/provider/openai.go
 # 将框架内部消息格式与 OpenAI 兼容 API 格式互相转换。
+# 第 3 章：接入 DeepSeek；第 6 章：补充异常兜底与智谱兼容端点。
 import os
 
 import openai
@@ -38,7 +39,14 @@ class OpenAIProvider(LLMProvider):
         if openai_tools:
             params["tools"] = openai_tools
 
-        response = self.client.chat.completions.create(**params)
+        try:
+            response = self.client.chat.completions.create(**params)
+        except Exception as e:
+            raise RuntimeError(f"OpenAI 兼容 API 请求失败: {e}") from e
+
+        if not response.choices:
+            raise RuntimeError("API 返回了空的 Choices")
+
         choice = response.choices[0].message
 
         result_msg = Message(
@@ -124,6 +132,21 @@ def new_deepseek_provider(model: str) -> OpenAIProvider:
         client=openai.OpenAI(
             api_key=api_key,
             base_url="https://api.deepseek.com",
+        ),
+        model=model,
+    )
+
+
+def new_zhipu_openai_provider(model: str) -> OpenAIProvider:
+    """对应 Go 版的 NewZhipuOpenAIProvider 构造函数（第 6 章新增）。"""
+    api_key = os.getenv("ZHIPU_API_KEY")
+    if not api_key:
+        raise RuntimeError("请设置 ZHIPU_API_KEY 环境变量")
+
+    return OpenAIProvider(
+        client=openai.OpenAI(
+            api_key=api_key,
+            base_url="https://open.bigmodel.cn/api/paas/v4/",
         ),
         model=model,
     )

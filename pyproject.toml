@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A minimal Agent Harness implemented in Python"
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=0.40.0",
     "openai>=1.0.0",
 ]
 
@@ -13,5 +14,8 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
 testpaths = ["tests"]
+# 注意：这里刻意不使用 pythonpath = ["."]。
+# 项目根目录一旦被插到 sys.path 最前面，本项目的 cmd/ 包会遮蔽标准库的 cmd 模块，
+# 而 pytest 内部依赖 pdb -> cmd.Cmd，会直接崩溃。
+# 根目录改由 tests/conftest.py 追加到 sys.path 末尾，两者互不干扰。
