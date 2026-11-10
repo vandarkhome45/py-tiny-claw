@@ -5,7 +5,11 @@ import json
 import os
 
 from internal.schema.message import ToolDefinition
+from internal.tools.path_guard import resolve_in_workspace
 from internal.tools.registry import BaseTool
+
+# 防御上下文爆炸：超长文件只保留前 8000 字节
+MAX_LEN = 8000
 
 
 class ReadFileTool(BaseTool):
@@ -37,16 +41,15 @@ class ReadFileTool(BaseTool):
         except json.JSONDecodeError as e:
             raise RuntimeError(f"参数解析失败: {e}") from e
 
-        full_path = os.path.join(self.work_dir, input_args.get("path", ""))
+        full_path = resolve_in_workspace(self.work_dir, input_args.get("path", ""))
 
         try:
+            # 只多读 1 字节用于判断是否超长，避免大文件整个读进内存
             with open(full_path, "rb") as f:
-                content = f.read()
+                content = f.read(MAX_LEN + 1)
         except OSError as e:
             raise RuntimeError(f"打开文件失败: {e}") from e
 
-        # 防御上下文爆炸：超长文件只保留前 8000 字节
-        MAX_LEN = 8000
         if len(content) > MAX_LEN:
             truncated_msg = (
                 f"{content[:MAX_LEN].decode('utf-8', errors='replace')}"

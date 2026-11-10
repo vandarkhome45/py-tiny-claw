@@ -2,6 +2,7 @@
 # 对应 Go 版: internal/tools/bash.go
 # 第 6 章：bash 工具 —— Agent 最强大的"万能手"，可以执行任意 shell 命令。
 import json
+import os
 import subprocess
 
 from internal.schema.message import ToolDefinition
@@ -45,10 +46,12 @@ class BashTool(BaseTool):
         command = input_args.get("command", "")
 
         # 边界 1：工作区约束（cwd）+ 边界 2：超时控制（timeout=30s）
+        # 安全加固：最小化 env，模型无法通过 env/cat ~/.zshrc 等读到 API 密钥
         try:
             completed = subprocess.run(
                 ["bash", "-c", command],
                 cwd=self.work_dir,
+                env=_safe_env(),
                 capture_output=True,
                 text=True,
                 timeout=TIMEOUT_SECONDS,
@@ -74,6 +77,12 @@ class BashTool(BaseTool):
             return "命令执行成功，无终端输出。"
 
         return _truncate(output)
+
+
+def _safe_env() -> dict:
+    """安全加固：只继承白名单环境变量，防止 API Key 等机密经 bash 泄漏进上下文。"""
+    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "SHELL")
+    return {k: os.environ[k] for k in keep if k in os.environ}
 
 
 def _merge_output(stdout, stderr) -> str:

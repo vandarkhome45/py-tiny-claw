@@ -3,14 +3,17 @@
 # 第 3 章：接入 DeepSeek Provider，并通过天气 Mock 工具验证 Agent 主循环（REPL 入口）。
 # 第 6 章：挂载 read_file / write_file / bash / edit_file 四大原语，
 #         用一次综合任务验证 Tool Registry 的分发能力。
-# 第 8 章：并发提效 Fork-Join。默认入口改为"一次性并发读取三个文件"。
+# 第 8 章：并发提效 Fork-Join（只读并发、涉写串行）。
+# 期中大作业：默认入口为终端对话模式 TinyClaw——
+#             助教在终端里说需求，智能体自己决定读哪些、写哪些、执行什么命令。
 #
 # 运行方式（在 py-tiny-claw 目录下）:
-#   python -m cmd.claw.main            # 第 8 章：三个只读调用 -> 并发（默认）
-#   python -m cmd.claw.main --mix      # 第 8 章：读写混合 -> 降级串行
-#   python -m cmd.claw.main --tools    # 第 6 章：四大原语综合任务
-#   python -m cmd.claw.main --repl     # 第 3 章：交互式 REPL（天气 Mock 工具）
-#   python -m cmd.claw.main --thinking # 在上述任一入口上开启慢思考模式
+#   python -m cmd.claw.main             # 终端对话模式（大作业默认入口，慢思考默认开启）
+#   python -m cmd.claw.main --no-thinking  # 同上，但关闭慢思考（对照组）
+#   python -m cmd.claw.main --read      # 第 8 章：三个只读调用 -> 并发
+#   python -m cmd.claw.main --mix       # 第 8 章：读写混合 -> 降级串行
+#   python -m cmd.claw.main --tools     # 第 6 章：四大原语综合任务
+#   python -m cmd.claw.main --repl      # 第 3 章：天气 Mock 工具 REPL（旧实验入口）
 import argparse
 import logging
 import os
@@ -191,12 +194,20 @@ def run_repl() -> None:
     eng = AgentEngine(llm_provider, registry, work_dir, True)
     print("输入问题开始对话，输入 exit、quit 或按 Ctrl+C 退出。")
 
+    # 同 run_chat 的加固：防止 PyCharm 终端中文输入坏字节杀死进程
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
     while True:
         try:
             prompt = input("你: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
+        except UnicodeDecodeError as e:
+            print(f"⚠️ 输入编码异常，请重新输入: {e}")
+            continue
 
         if not prompt:
             continue
@@ -206,16 +217,63 @@ def run_repl() -> None:
         eng.run(prompt)
 
 
+def run_chat(enable_thinking: bool = True) -> None:
+    """期中大作业：TinyClaw 终端对话模式。
+
+    每输入一句话运行一次智能体：模型先慢思考做规划，再按
+    "思考 -> 行动 -> 观察" 循环调用四大原语工具，直到给出最终回答；
+    回答完继续等待下一句，输入 exit 退出。
+    """
+    _require_api_key()
+
+    # Agent 的活动范围锁定在 workspace/，工具的读写、bash 的 cwd 都出不去
+    work_dir = _workspace_dir()
+
+    llm_provider = new_deepseek_provider(MODEL)
+    registry = build_tool_registry(work_dir)
+    eng = AgentEngine(llm_provider, registry, work_dir, enable_thinking)
+
+    print("💻 终端模式已启动，输入你的问题（输入 exit 退出）")
+    print(f"   工作区: {work_dir}    模型: {MODEL}    慢思考: {'开' if enable_thinking else '关'}")
+    # 加固：PyCharm 仿真终端的中文输入偶发产生坏字节，强制 UTF-8 并容错解码，
+    # 避免 input() 抛 UnicodeDecodeError 直接杀死整个进程
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+    while True:
+        try:
+            prompt = input("👤 你: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        except UnicodeDecodeError as e:
+            print(f"⚠️ 输入编码异常，请重新输入（PyCharm 终端中文输入偶发问题）: {e}")
+            continue
+
+        if not prompt:
+            continue
+        if prompt.lower() in {"exit", "quit"}:
+            print("👋 再见")
+            break
+
+        # 单轮任务的任何崩溃（网络、Provider 等）只结束本轮，对话不退出
+        try:
+            eng.run(prompt)
+        except Exception as e:
+            print(f"⚠️ 本轮任务出错: {e}")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m cmd.claw.main",
-        description="py-tiny-claw 多章节演示入口",
+        description="TinyClaw 微型编程智能体（期中大作业：终端对话模式）",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--read",
         action="store_true",
-        help="第 8 章：一次性读 3 个文件 -> 只读批次，并发执行（默认）",
+        help="第 8 章：一次性读 3 个文件 -> 只读批次，并发执行",
     )
     group.add_argument(
         "--mix",
@@ -233,9 +291,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="第 3 章：交互式 REPL（天气 Mock 工具 + 慢思考）",
     )
     parser.add_argument(
-        "--thinking",
-        action="store_true",
-        help="开启慢思考模式（Thinking Phase），默认关闭以节省 token",
+        "--no-thinking",
+        dest="thinking",
+        action="store_false",
+        help="关闭慢思考模式（终端对话模式默认开启，此参数用于对照实验）",
     )
     return parser
 
@@ -249,9 +308,11 @@ def main() -> None:
         run_parallel_demo(PROMPT_MIX, args.thinking)
     elif args.tools:
         run_tool_demo(args.thinking)
-    else:
-        # 默认：第 8 章并发读演示
+    elif args.read:
         run_parallel_demo(PROMPT_READ, args.thinking)
+    else:
+        # 默认（大作业要求）：终端对话模式，慢思考开启
+        run_chat(enable_thinking=args.thinking)
 
 
 if __name__ == "__main__":

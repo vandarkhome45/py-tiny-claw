@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 # write_file / edit_file / bash 都可能修改文件系统状态，一律按“写”处理，串行执行。
 READ_ONLY_TOOLS = {"read_file"}
 
+# 单次任务的最大轮数熔断：防止模型陷入"失败→重试"死循环无限烧 token
+MAX_TURNS = 25
+
 
 class AgentEngine:
     """Agent 引擎：持有 Provider(⼤脑) 与 Registry(⼿脚)，并锁定⼀个⼯作区⽬录。"""
@@ -55,6 +58,10 @@ class AgentEngine:
         ]
         turn_count = 0
         while True:
+            if turn_count >= MAX_TURNS:
+                raise RuntimeError(
+                    f"任务在 {MAX_TURNS} 轮内未完成，已强制终止（防止死循环烧 token）"
+                )
             turn_count += 1
             log.info("========== [Turn %d] 开始 ==========", turn_count)
             available_tools = self.registry.get_available_tools()

@@ -5,6 +5,7 @@ import json
 import os
 
 from internal.schema.message import ToolDefinition
+from internal.tools.path_guard import resolve_in_workspace
 from internal.tools.registry import BaseTool
 
 
@@ -44,7 +45,7 @@ class WriteFileTool(BaseTool):
         rel_path = input_args.get("path", "")
         content = input_args.get("content", "")
 
-        full_path = os.path.join(self.work_dir, rel_path)
+        full_path = resolve_in_workspace(self.work_dir, rel_path)
 
         # 自动创建父目录（path 不带目录时 dirname 为空，跳过即可）
         parent = os.path.dirname(full_path)

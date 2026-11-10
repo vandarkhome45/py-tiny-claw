@@ -14,3 +14,11 @@ workspace/
 
 # 其他密钥文件
 *.env
+
+# 测试临时目录
+.pytest_tmp/
+.pytest_tmp_*/
+
+# 作业材料不进公开仓库（含个人信息/本地路径）
+runlogs/
+*.docx

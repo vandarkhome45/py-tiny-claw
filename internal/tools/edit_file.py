@@ -5,6 +5,7 @@ import json
 import os
 
 from internal.schema.message import ToolDefinition
+from internal.tools.path_guard import resolve_in_workspace
 from internal.tools.registry import BaseTool
 
 
@@ -49,7 +50,7 @@ class EditFileTool(BaseTool):
         old_text = input_args.get("old_text", "")
         new_text = input_args.get("new_text", "")
 
-        full_path = os.path.join(self.work_dir, path)
+        full_path = resolve_in_workspace(self.work_dir, path)
 
         try:
             with open(full_path, "r", encoding="utf-8") as f:
